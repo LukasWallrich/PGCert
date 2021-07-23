@@ -1,0 +1,524 @@
+---
+title             : "A"
+shorttitle        : "Title"
+
+author: 
+  - name          : "First Author"
+    affiliation   : "1"
+    corresponding : yes    # Define only one corresponding author
+    address       : "Postal address"
+    email         : "my@email.com"
+    role:         # Contributorship roles (e.g., CRediT, https://casrai.org/credit/)
+      - Conceptualization
+      - Writing - Original Draft Preparation
+      - Writing - Review & Editing
+  - name          : "Ernst-August Doelle"
+    affiliation   : "1,2"
+    role:
+      - Writing - Review & Editing
+
+affiliation:
+  - id            : "1"
+    institution   : "Wilhelm-Wundt-University"
+  - id            : "2"
+    institution   : "Konstanz Business School"
+
+authornote: |
+  Add complete departmental affiliations for each author here. Each new line herein must be indented, like this line.
+
+  Enter author note here.
+
+abstract: |
+  One or two sentences providing a **basic introduction** to the field,  comprehensible to a scientist in any discipline.
+  
+  Two to three sentences of **more detailed background**, comprehensible  to scientists in related disciplines.
+  
+  One sentence clearly stating the **general problem** being addressed by  this particular study.
+  
+  One sentence summarizing the main result (with the words "**here we show**" or their equivalent).
+  
+  Two or three sentences explaining what the **main result** reveals in direct comparison to what was thought to be the case previously, or how the  main result adds to previous knowledge.
+  
+  One or two sentences to put the results into a more **general context**.
+  
+  Two or three sentences to provide a **broader perspective**, readily comprehensible to a scientist in any discipline.
+  
+  <!-- https://tinyurl.com/ybremelq -->
+  
+keywords          : "keywords"
+wordcount         : "X"
+
+bibliography      : ["r-references.bib"]
+
+floatsintext      : yes
+figurelist        : no
+tablelist         : no
+footnotelist      : no
+linenumbers       : no
+mask              : yes
+draft             : no
+
+documentclass     : "apa6"
+classoption       : "man"
+output            : papaja::apa6_pdf
+---
+
+```{r setup, include = FALSE, echo=FALSE}
+library("papaja")
+r_refs("r-references.bib")
+library(tidyverse)
+library(magrittr)
+library(timesaveR)
+library(RColorBrewer)
+library(patchwork)
+
+students <- read_csv("studentRegistration.csv") %>% 
+  #Filter social science modules
+  filter(code_module %in% c("AAA", "BBB", "GGG")) %>%
+  left_join(read_csv("studentInfo.csv")) %>% 
+  mutate_if(is.character, factor)
+
+assessments <- left_join(read_csv("studentAssessment.csv"), read_csv("assessments.csv")) %>%
+  filter(code_module %in% c("AAA", "BBB", "GGG")) %>% 
+  mutate_if(is.character, factor) %>%
+  #Remove banked grades (not currently studied for)
+  filter(is_banked == 0)
+
+assessment_results <- assessments %>% 
+  group_by(id_student, code_module, code_presentation) %>%
+  summarise(assessment_result_wt = weighted.mean(score, weight),
+            assessment_result = mean(score),
+            share_assessments_completed = sum(weight), .groups = "drop")
+
+students <- left_join(students, assessment_results)
+
+vle_interactions <- read_csv("studentVle.csv") %>%
+  filter(code_module %in% c("AAA", "BBB", "GGG")) %>% 
+  mutate_if(is.character, factor) 
+
+vle_resources <- read_csv("vle.csv") %>%
+  filter(code_module %in% c("AAA", "BBB", "GGG")) %>% 
+  mutate_if(is.character, factor)
+
+vle_interactions <- vle_resources %>% 
+  select(id_site, activity_type) %>% 
+  left_join(vle_interactions, .) %>%
+  mutate(activity_type = fct_lump_prop(droplevels(activity_type), .01, w = sum_click, other_level = "other")) %>% mutate(activity_type = fct_recode(activity_type, forum = "forumng"), activity_mode = fct_collapse(activity_type, active = c("forum", "quiz"), other_level = "passive"))
+
+students$highest_education %<>% factor(levels = rev(c("No Formal quals", "Lower Than A Level", "A Level or Equivalent", "HE Qualification", "Post Graduate Qualification")))
+students$final_result %<>% factor(levels = rev(c("Fail", "Pass", "Distinction", "Withdrawn")))
+
+students %<>% filter(final_result != "Withdrawn")
+  
+```
+
+```{r analysis-preferences}
+# Seed for random number generation
+set.seed(42)
+knitr::opts_chunk$set(cache.extra = knitr::rand_seed)
+```
+
+
+
+# Methods
+
+
+## Participants
+
+I only considered Social Science modules, given that these are closer to my teaching reality than the STEM modules also included in the dataset. Also, only students who completed the modules were included, in order to focus this study on learning, rather than retention. This restricted the sample to `r length(unique(students$id_student))` students (`r fmt_pct(mean(students$gender == "F"))` female) across three modules. In line with the Open University student body, they were diverse in terms of age, educational qualifications and the level of deprivation of their post code (see \autoref{fig:exp1}).
+
+```{r, fig.height=5, fig.width=8, fig.cap="Sample composisition by module and students' age, prior education, local deprivation and final result \\label{fig:exp1}"}
+
+
+
+col_res <- rev(c(brewer.pal(3, "RdYlGn")))
+
+p_res <- ggplot(students, aes(code_module, fill = final_result)) + geom_bar(position = "fill") + scale_y_continuous(labels = scales::percent) + labs(x="", y="", fill = "Final result") + papaja::theme_apa() + scale_fill_manual(values = col_res)
+
+p_age <- ggplot(students, aes(x=code_module, fill = fct_rev(age_band))) + geom_bar(position = "fill") + scale_y_continuous(labels = scales::percent) + labs(x="", y="", fill = "Age") + papaja::theme_apa() + scale_fill_brewer(palette = "Paired")
+
+p_edu <- ggplot(students, aes(x=code_module, fill = highest_education)) + geom_bar(position = "fill") + scale_y_continuous(labels = scales::percent) + labs(x="", y="", fill = "Education") + scale_fill_brewer(direction = -1) + papaja::theme_apa() 
+
+more_blues = rev(colorRampPalette(brewer.pal(8, "Blues"))(12))[1:10]
+
+students$imd_band %<>% factor(levels = rev(levels(students$imd_band)))
+
+p_imd <- ggplot(students %>% filter(!is.na(imd_band)), aes(x=code_module, fill = imd_band)) + geom_bar(position = "fill") + scale_y_continuous(labels = scales::percent) + labs(x="", y="", fill = "Level of deprivation") + scale_fill_manual(values = more_blues) + papaja::theme_apa()
+
+
+(p_age | p_edu) / (p_imd | p_res) + plot_annotation(tag_levels = 'A')
+
+```
+
+## Data analysis
+I used `r cite_r("r-references.bib")` for all analyses. For transparency, the code to run the analyses and create this manuscript is shared on GitHub. 
+
+```{r}
+cite_r(pkgs = c("tidyverse", "patchwork", "lme4"))
+```
+
+# Results
+
+## Description of VLE interactions
+
+\autoref{fig:exp2} illustrates students' average frequency of interactions with different types of VLE pages. Panel A expresses this as the average number of days the student interacted with the resource, while Panel B focuses on the average number of clicks, thereby also including the intensity of engagement. The results highlight that VLE usage in module AAA was substantially higher than that in the other two modules, and that in each module, students engaged most intensely with the homepage, with forums and OU learning content.
+
+```{r, fig.height=5, fig.width=8, fig.cap="Average frequency of interaction with various types of pages \\label{fig:exp2}"}
+types_used_clicks <- vle_interactions %>%
+  filter(id_student %in% students$id_student) %>%
+  group_by(code_module) %>%
+  mutate(N = length(unique(id_student)), sum_click = sum_click / N) %>%
+  group_by(code_module, activity_type) %>%
+  summarise(clicks = sum(sum_click))
+
+clicks <- types_used_clicks %>% ggplot(aes(x = code_module, y = clicks, fill = activity_type)) +
+  geom_col() + theme_apa() + labs(x="", y="", title = "Mean clicks per student", fill = "Page type") + scale_fill_brewer(type="qual")
+
+types_used_days <- vle_interactions %>%
+  filter(id_student %in% students$id_student) %>%
+  group_by(code_module) %>%
+  mutate(N = length(unique(id_student))) %>%
+  group_by(N, code_module, id_student, activity_type) %>%
+  summarise(active_days = length(unique(date))/mean(N)) %>%
+  group_by(code_module, activity_type) %>%
+  summarise(active_days = sum(active_days))
+
+days <- types_used_days %>% ggplot(aes(x = code_module, y = active_days, fill = activity_type)) +
+  geom_col() + theme_apa() + labs(x="", y="", title = "Mean active days per student", fill = "Page type") + scale_fill_brewer(type="qual")
+
+days + clicks + plot_layout(guides = "collect") + plot_annotation(tag_levels = 'A')
+
+```
+
+Students' frequency of engaging with the VLE pages varied drastically. \autoref{fig:exp3} shows the distribution on a logarithmic scale, with equal-sized steps on the y-axis indicating a doubling of the frequency of engagement. The data indicates that across modules, students tended to engage more frequently with resources that focused on passive rather than active learning. ^[VLE forums and quizzes were taken to use an active learning mode, while all other pages were considered to focus on passive learning.]
+
+```{r, fig.height=5, fig.width=8, fig.cap="Distribution of interaction frequencies \\label{fig:exp3}"}
+mode_used_clicks <- vle_interactions %>%
+  filter(id_student %in% students$id_student) %>%
+  group_by(code_module, id_student, activity_mode) %>%
+  summarise(clicks = sum(sum_click))
+
+clicks <- mode_used_clicks %>% ggplot(aes(x = code_module, y = clicks, fill = activity_mode)) +
+  geom_violin() + theme_apa() + labs(x="", y="", title = "Clicks per student", fill = "Learning mode") + scale_y_continuous(trans = "log2")
+
+mode_used_days <- vle_interactions %>%
+  filter(id_student %in% students$id_student) %>%
+  group_by(code_module, id_student, activity_mode) %>%
+  summarise(days = length(unique(date)))
+
+days <- mode_used_days %>% ggplot(aes(x = code_module, y = days, fill = activity_mode)) +
+  geom_violin() + theme_apa() + labs(x="", y="", title = "Active days per student", fill = "Learning mode") + scale_y_continuous(trans = "log2")
+
+days + clicks + plot_layout(guides = "collect") + plot_annotation(tag_levels = 'A')
+
+```
+
+## Engagement predicts results
+
+Following from these descriptions, I turn to the key research question, namely whether VLE engagement can predict module results. From here, for parsimony, I only report results based on the number of active days as an indicator of engagement; results of models focused on the number of clicks were generally comparable. \autoref{fig:exp4} shows that across modules and cohorts, there was a clear positive relationship between VLE engagement and students' average assessment grade. Given that each additional unit of VLE engagement is likely to have diminishing returns, I tested how each doubling of the number of active days is linked to the grade. In \autoref{fig:exp4}, lines are shown that indicate how a General Additive Model [@wood_gam] estimates the relationship. This allows for any curves to be estimated and does not assume a linear relationship. However, if the relationship is linear in the areas with the densest clustering of observations, non-linearity beyond might be a result due to overfitting, i.e. driven by special circumstances of the sample. Given that this is the case here, linear models are prefered for the statistical test.
+
+
+```{r, fig.height=5, fig.width=8, fig.cap="Relationship between VLE activity and assessment results \\label{fig:exp4}"}
+days_active <- vle_interactions %>%
+  filter(id_student %in% students$id_student) %>%
+  group_by(code_module, code_presentation, id_student) %>%
+  summarise(days = length(unique(date))) %>% left_join(students) %>%
+  mutate(N = unique(id_student))
+
+labels_presentations <- list("2013 winter" = "2013B", "2013 summer" = "2013J", 
+                             "2014 winter" = "2014B", "2014 summer" = "2014J")
+
+days_active %<>% mutate(code_presentation = fct_recode(code_presentation, !!!labels_presentations))
+
+ggplot(days_active, aes(days, assessment_result, col = code_presentation)) +
+  geom_jitter(aes(alpha = 1 / N)) +
+  geom_smooth(se=FALSE) +
+  facet_wrap(.~code_module) + 
+  scale_alpha(range = c(0.1, 0.25), guide = FALSE) + 
+  scale_x_continuous(trans = "log2") +
+  labs(col = "Cohort", y = "Mean assessment grade", x = "Active days") + scale_color_brewer(palette="Set1")
+```
+
+
+```{r}
+mods <- days_active %>% group_by(code_module, code_presentation) %>% do(mod = lm(assessment_result ~ log(days, 2), .)) 
+
+coefs <- mods %>%
+  mutate(tidy_mod = list(broom::tidy(mod))) %>%
+  select(-mod) %>%
+  unnest(tidy_mod) %>%
+  filter(str_detect(term, "log")) %>%
+  select(code_module, code_presentation, estimate, p.value)
+
+R2s <- mods %>%
+  mutate(glance_mod = list(broom::glance(mod))) %>%
+  select(-mod) %>%
+  unnest(glance_mod) %>%
+  select(code_module, code_presentation, r.squared)
+
+```
+
+Linear regression models predicting the average grade from the logarithm of base 2 of the number of active days show that VLE activity consistently significantly predicts average assessment grades, all *p* < .0001. Typically, the number of days with VLE activity explained 
+TK - distribution of R2 with exception + Interaction tests
+
+
+```{r}
+m_sd <- function(x, na.rm = TRUE, digits = 2) {
+  glue::glue("{timesaveR::round_(mean(x, na.rm = na.rm), digits)} ({timesaveR::round_(sd(x, na.rm = na.rm), digits)})")
+}
+
+
+unique_until <- function(var, until){
+  length(unique(var[1:until]))
+}
+
+unique_until <- Vectorize(unique_until, vectorize.args = "until")
+
+
+interactions_cum <- vle_interactions %>%
+  group_by(code_module, code_presentation, id_student) %>%
+  arrange(date) %>%
+  mutate(group_row = row_number(), cum_clicks = cumsum(sum_click), cum_days = unique_until(date, group_row)) %>%
+  group_by(code_module, code_presentation, id_student, date) %>%
+  slice_tail(n = 1) %>%
+  select(code_module, code_presentation, id_student, date, cum_clicks, cum_days) %>%
+  ungroup()
+
+interactions_cum_type <- vle_interactions %>%
+  group_by(code_module, code_presentation, id_student, activity_type) %>%
+  arrange(date) %>%
+  mutate(group_row = row_number(), cum_clicks = cumsum(sum_click), cum_days = unique_until(date, group_row)) %>%
+  group_by(code_module, code_presentation, id_student, date, activity_type) %>%
+  slice_tail(n = 1) %>%
+  select(code_module, code_presentation, id_student, date, cum_clicks, cum_days, activity_type) %>%
+  ungroup()
+
+interactions_summary <- vle_interactions %>% group_by(code_module, code_presentation, id_student) %>% summarise(days_active = length(unique(date)), clicks = sum(sum_click)) %>% left_join(students) %>% 
+  mutate(final_result = factor(final_result, levels = c("Withdrawn", "Fail", "Pass", "Distinction")))
+
+interactions_summary %>% 
+  group_by(code_module, code_presentation, final_result) %>%
+  summarise(Days_mean = m_sd(days_active), Days_median = median(days_active), Clicks_mean = m_sd(clicks), Clicks_median = median(clicks)) %>% gt::gt()
+
+ggplot(interactions_summary, aes(log(clicks), col = final_result)) + geom_density() + facet_grid(code_module ~ code_presentation)
+
+
+interactions_summary  %>%
+  ggplot(aes(days_active, y = final_result)) +
+  geom_boxplot() +
+  facet_grid(code_module ~ code_presentation) 
+
+interactions_summary %>% 
+  ggplot(aes(days_active, y = assessment_result)) +
+  geom_jitter(alpha = .1) +
+  facet_grid(code_module ~ code_presentation) 
+
+```
+
+## Association to demographics
+
+In order to understand whether VLE usage is related to demographic factors that predict student outcomes, linear regression models were run to see whether student's age category, gender, disability status, or level of previous education predicted their frequency of VLE usage. 
+
+```{r}
+
+total_engagement_mode <- students %>%
+  select(code_module, code_presentation, id_student, final_result) %>%
+  left_join(vle_interactions, .) %>%
+  filter(final_result != "Withdrawn") %>%
+  group_by(code_module, code_presentation, id_student, activity_mode) %>%
+  summarise(sum_click = sum(sum_click), days_active = length(unique(date)))
+
+total_engagement_mode <- students %>%
+  select(code_module, code_presentation, id_student, final_result, gender, highest_education, imd_band, age_band, studied_credits, disability, assessment_result) %>%
+left_join(total_engagement_mode, .) 
+
+total_engagement_mode %<>% mutate(imd_num = as.numeric(str_sub(imd_band, 1, 1))+1)
+
+total_engagement_mode_wider_days <- total_engagement_mode %>% select(-sum_click) %>% pivot_wider(names_from = activity_mode, values_from = days_active)
+
+total_engagement_mode_wider_clicks <- total_engagement_mode %>% select(-days_active) %>% pivot_wider(names_from = activity_mode, values_from = sum_click)
+
+R2_diff <- function(mod1, mod2) {
+ timesaveR::fmt_pct(summary(mod2)$r.squared - summary(mod1)$r.squared)
+}
+
+mod_days1 <- lm(cbind(active, passive) ~ code_module * code_presentation, total_engagement_mode_wider_days)
+
+mod_days2 <- lm(cbind(active, passive) ~ code_module * code_presentation + imd_num + highest_education + gender + disability, total_engagement_mode_wider_days)
+
+
+
+lm(cbind(active, passive) ~ code_module * code_presentation, total_engagement_mode_wider_clicks) %>% summary()
+
+lm(cbind(active, passive) ~ code_module * code_presentation + imd_num + highest_education + gender + disability, total_engagement_mode_wider_clicks) %>% summary()
+
+
+
+```
+
+
+
+
+## Consider activity types
+
+```{r}
+#vle_interactions %>% count(activity_type, sort = T)
+
+interactions_summary_types <- vle_interactions %>%
+  group_by(code_module, code_presentation, id_student, activity_type     ) %>% 
+  summarise(days_active = length(unique(date)), clicks = sum(sum_click)) %>% 
+  left_join(students) %>% 
+  mutate(final_result = factor(final_result, levels = c("Withdrawn", "Fail", "Pass", "Distinction")))
+
+interactions_summary_types %<>% filter(activity_type %in% c("forumng", "quiz", "oucollaborate", "questionnaire"))
+
+interactions_summary_types  %>%
+  ggplot(aes(days_active, y = final_result)) +
+  geom_boxplot() +
+  facet_grid(code_module ~ activity_type, scales = "free_x")
+
+```
+```{r}
+students_retakes <- filter(students, code_presentation %in% c("2014B", "2014J"), num_of_prev_attempts > 0)
+
+students_first_attempts <- students %>% filter(code_presentation %in% c("2013B", "2013J"), id_student %in% students_retakes$id_student)
+
+students_first_attempts %>% select(-code_presentation) %>% left_join(students_retakes %>% select(-code_presentation), by = c("code_module", "id_student"))
+
+merged_attempts <- students_first_attempts %>% left_join(students_retakes, by = c("code_module", "id_student"), suffix = c(".2013", ".2014"))
+
+```
+
+
+```{r}
+interactions_summary %>%
+  group_by(code_module, code_presentation) %>%
+  mutate(days_decile = ntile(days_active, 10)) %>%
+  ungroup() %>%
+  left_join(assessments, .) %>%
+  group_by(code_module, code_presentation, id_assessment) %>%
+  mutate(score = scale(score), n = n(), mean_day = mean(date_submitted)) %>%
+  group_by(code_module, code_presentation, id_assessment, days_decile) %>%
+  summarise(mean_score = mean(score)) %>%
+  ungroup() %>%
+  drop_na() %>%
+  ggplot(aes(x = mean_day, y = mean_score, col = days_decile, group = days_decile)) +
+  geom_line() +
+  facet_grid(code_module ~ code_presentation)
+
+```
+
+```{r}
+
+interactions_cum %<>% mutate(index = paste0(code_module, code_presentation, id_student)) 
+interactions_cum_type %<>% mutate(index = paste0(code_module, code_presentation, id_student)) 
+
+## Too slow with dplyr
+# get_cum_day <- function(index, date) {
+#   x <- interactions_cum %>% filter(index == index) 
+#   x[x$date == max(x$date[x$date<=date]),]$cum_days
+# }
+# 
+# get_cum_clicks <- function(index, date) {
+#   x <- interactions_cum %>% filter(index == index)
+#   x[x$date == max(x$date[x$date<=date]),]$cum_clicks
+# }
+# 
+# get_cum_day <- Vectorize(get_cum_day)
+# get_cum_clicks <- Vectorize(get_cum_clicks)
+# 
+# system.time(assessments2 <- assessments[1:500,] %>%
+#   group_by(code_module, code_presentation, id_assessment) %>%
+#   mutate(score_sd = scale(score), n = n(), mean_day = mean(date_submitted)) %>% ungroup() %>% mutate(index = paste0(code_module, code_presentation, id_student), cum_clicks = get_cum_clicks(index, floor(mean_day)), cum_days = get_cum_day(index, floor(mean_day))))
+# 
+
+library(data.table)
+interactions_cum_dt <- data.table(interactions_cum)
+interactions_cum_type_dt <- data.table(interactions_cum_type)
+setkey(interactions_cum_dt, index)
+setkey(interactions_cum_type_dt, index)
+
+get_cum_day_dt <- function(ref, assignment_date) {
+  x <- interactions_cum_dt[.(ref)][date <= assignment_date]
+    if(nrow(x)==0) return(NA)
+  max(x$cum_days)
+}
+
+get_cum_clicks_dt <- function(res, assignment_date) {
+  x <- interactions_cum_dt[.(res)][date <= assignment_date]
+    if(nrow(x)==0) return(NA)
+  max(x$cum_clicks)
+
+}
+
+get_cums_data_type_dt <- function(ref, assignment_date) {
+  x <- interactions_cum_type_dt[.(ref)][date <= assignment_date]
+  if(nrow(x)==0) return(NA)
+ out <- x[x[, .I[date == max(date)], by=activity_type]$V1][,.(activity_type, cum_clicks, cum_days)]
+ data.frame(out)
+}
+
+
+get_cum_day_dt <- Vectorize(get_cum_day_dt, USE.NAMES = FALSE)
+get_cum_clicks_dt <- Vectorize(get_cum_clicks_dt, USE.NAMES = FALSE)
+get_cums_data_type_dt <- Vectorize(get_cums_data_type_dt, USE.NAMES = FALSE, SIMPLIFY = TRUE)
+
+assessments %<>%
+  group_by(code_module, code_presentation, id_assessment) %>%
+  mutate(score_sd = c(scale(score)), n = n(), mean_day = mean(date_submitted)) %>%
+  ungroup() %>%
+  mutate(index = paste0(code_module, code_presentation, id_student), 
+         cum_clicks = get_cum_clicks_dt(index, floor(mean_day)), 
+         cum_days = get_cum_day_dt(index, floor(mean_day)))
+
+assessments_type <- assessments %>% select(-cum_clicks, -cum_days) %>%
+  group_by(code_module, code_presentation, id_assessment) %>%
+  mutate(score_sd = c(scale(score)), n = n(), mean_day = mean(date_submitted)) %>%
+  ungroup() %>%
+  mutate(index = paste0(code_module, code_presentation, id_student), 
+         cums_data = flatten(get_cums_data_type_dt(index, floor(mean_day)))) %>%
+  unnest(cums_data) %>%
+  pivot_wider(names_from = activity_type, values_from = cum_days, values_fill = 0)
+
+assessments_type %<>% left_join(students)
+
+library(lmerTest)
+mod <- lmer(score_sd ~ forumng + homepage + oucontent + subpage + url + resource + other + quiz  + code_presentation + code_module + (1|id_student) + (1|id_assessment), assessments_type, REML = FALSE)
+
+summary(mod)
+
+assessments %>% write_rds("assessments_with_engagement.RDS")
+#assessments <- read_rds("assessments_with_engagement.RDS")
+assessments %<>% left_join(students)
+
+assessment_models <- assessments %>% group_by(id_assessment) %>% do(model = lm(score ~ cum_days * gender, data = .))
+
+assessments %>%
+  group_by(id_assessment) %>%
+  mutate(days_decile = ntile(cum_days, 10)) %>%
+  ungroup() %>%
+  group_by(code_module, code_presentation, id_assessment, mean_day, days_decile) %>%
+  summarise(mean_score = mean(score_sd)) %>%
+  ungroup() %>%
+  drop_na() %>%
+  ggplot(aes(x = mean_day, y = mean_score, col = days_decile, group = days_decile)) +
+  geom_line() +
+  facet_grid(code_module ~ code_presentation)
+
+```
+
+
+
+# Discussion
+
+
+\newpage
+
+# References
+
+\begingroup
+\setlength{\parindent}{-0.5in}
+\setlength{\leftskip}{0.5in}
+
+<div id="refs" custom-style="Bibliography"></div>
+\endgroup
