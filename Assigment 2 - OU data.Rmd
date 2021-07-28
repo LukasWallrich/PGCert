@@ -1,6 +1,6 @@
 ---
 title             : "Understanding demographic predictors and academic outcomes of active and passive VLE engagement"
-shorttitle        : "Predictos and outcomes of VLE engagement"
+shorttitle        : "Predictors and outcomes of VLE engagement"
 
 author: 
   - name          : "First Author"
@@ -29,16 +29,16 @@ authornote: |
   Enter author note here.
 
 abstract: |
-  Virtual Learning Environments (VLEs) have gained pride of place in university teaching, not just in pandemic times. However, student engagement with the resources offered there is highly unequal. In order to use VLEs effectively, we need to understand whether they contribute to students' achievement and whether inequalities in engagement exacerbate pre-existing inequalities.
+  Virtual Learning Environments (VLEs) have gained pride of place in university teaching, not just in pandemic times. However, student engagement with the resources offered there appears to be highly unequal. In order to use VLEs effectively, we need to understand whether they contribute to students' achievement and whether inequalities in engagement exacerbate pre-existing inequalities.
   
-  Using a large-scale dataset released by the Open University, this paper analyses the VLE interactions of more than 9,000 students who completed social science modules. In line with expectations, VLE engagement was found to substantially predict assessment grades. Contrary to expectations, it was not substantially influenced by students' demographic characteristics. Similarly, contrary to expectations, in the aggregate, (passive) engagement with content pages was a better predictor of outcomes than active participation in forums and quizzes. 
+  Using a large-scale dataset released by the Open University, I analyse the VLE interactions of more than 9,000 students who completed social science modules. In line with expectations, VLE engagement was found to substantially predict assessment grades. Furthermore, it was predicted by students' age and their socioeconomic background. Importantly, differences in VLE engagement appeared to offer a partial explanation for the link between socioeconomic status and assessment outcomes. Contrary to expectations, in the aggregate, there was no evidence that active participation in forums and quizzes was a better predictor of outcomes than (passive) engagement with content pages. 
   
-  Implications of these findings for the use of VLE environments, their limitations and directions for future research are discussed. 
+  I discuss implications of these findings for the use of VLE environments in my teaching, their limitations and directions for future research. 
   
-keywords          : "keywords"
-wordcount         : "X"
+keywords          : "learning analytics, virtual learning environments, online teaching"
+wordcount         : "1998"
 
-bibliography      : ["r-references.bib"]
+bibliography      : ["r-references.bib", "assignment-references.bib"]
 
 floatsintext      : yes
 figurelist        : no
@@ -90,12 +90,19 @@ vle_resources <- read_csv("vle.csv") %>%
 vle_interactions <- vle_resources %>% 
   select(id_site, activity_type) %>% 
   left_join(vle_interactions, .) %>%
-  mutate(activity_type = fct_lump_prop(droplevels(activity_type), .01, w = sum_click, other_level = "other")) %>% mutate(activity_type = fct_recode(activity_type, forum = "forumng"), activity_mode = fct_collapse(activity_type, active = c("forum", "quiz"), other_level = "passive"))
+  mutate(activity_type = fct_lump_prop(droplevels(activity_type), .01, w = sum_click, other_level = "other")) %>% mutate(activity_type = fct_recode(activity_type, forum = "forumng"), activity_mode = fct_collapse(activity_type, active = c("forum", "quiz"), homepage = "homepage", other_level = "passive"))
 
 students$highest_education %<>% factor(levels = rev(c("No Formal quals", "Lower Than A Level", "A Level or Equivalent", "HE Qualification", "Post Graduate Qualification")))
 students$final_result %<>% factor(levels = rev(c("Fail", "Pass", "Distinction", "Withdrawn")))
 
-students %<>% filter(final_result != "Withdrawn")
+students %<>% filter(final_result != "Withdrawn") %>% 
+  mutate(imd_band = fct_recode(imd_band, "1-10%" = "0-10%"))
+
+students %<>% mutate(code_module = fct_recode(code_module, A = "AAA", B = "BBB", G = "GGG"))
+vle_interactions %<>% mutate(code_module = fct_recode(code_module, A = "AAA", B = "BBB", G = "GGG"))
+vle_resources %<>% mutate(code_module = fct_recode(code_module, A = "AAA", B = "BBB", G = "GGG"))
+assessment_results %<>% mutate(code_module = fct_recode(code_module, A = "AAA", B = "BBB", G = "GGG"))
+assessments %<>% mutate(code_module = fct_recode(code_module, A = "AAA", B = "BBB", G = "GGG"))
   
 ```
 
@@ -105,45 +112,72 @@ set.seed(42)
 knitr::opts_chunk$set(cache.extra = knitr::rand_seed)
 ```
 
+Most universities have embraced the use of virtual learning environments (VLEs), where learning materials and interaction opportunities are offered to all students studying on a given module. While this preceded the Covid-19 pandemics, the ensuing growth in online and blended teaching made it even more important to understand how students use VLE resources and how they can contribute to learning.  
+
+In this paper, I analyse the largest openly available data set that describes students' interactions with online learning environments. The Open University Learning Analytics Dataset (OULAD) was released in 2017 and covers more than 10 million VLE interactions by more than 32,000 students [@kuzilek2017open]. To date, it has been used in dozens of papers, mostly using advanced machine learning methods to predict student progression and retention from large datasets [e.g., @hussain2018student; @waheed2020predicting]. While such research can inform the development of VLE dashboards and other teaching management tools, such approaches tends to be of limited relevance to practitioners who seek guidance regarding the design of the VLE pages for their teaching. In this paper, I attempt to extract such practically relevant insights from the dataset.
+
+## Research questions
+
+Specifically, I aim to answer the following questions: 
+
+1. Does students' level of engagement with a VLE predict their assessment results? ^[@hussain2018student have already shown this association to be statistically significant. However, they did not report effect sizes or focus on social science courses.]
+2. Is there a difference in the observed effects of engaging actively (e.g., in forums) and passively (e.g., by watching videos and reading text)?
+3. Is VLE engagement linked to students' demographic background, and thus to pre-existing inequalities?
+
 # Methods
 
 ## Participants
 
-I only considered Social Science modules, given that these are closer to my teaching reality than the STEM modules also included in the dataset. Also, only students who completed the modules were included, in order to focus this study on learning, rather than retention. This restricted the sample to `r length(unique(students$id_student))` students (`r fmt_pct(mean(students$gender == "F"))` female) across three modules. In line with the Open University student body, they were diverse in terms of age, educational qualifications and the level of deprivation of their post code (see \autoref{fig:exp1}).
-
-```{r describe_sample, fig.height=5, fig.width=8, fig.cap="Sample composisition by module and students' age, prior education, local deprivation and final result \\label{fig:exp1}"}
+```{r, fig.height=8, fig.width=8.5, fig.cap="Sample composisition by module and students' age, prior education, local deprivation and final result \\label{fig:exp1}"}
 
 
 col_res <- rev(c(brewer.pal(3, "RdYlGn")))
 
-p_res <- ggplot(students, aes(code_module, fill = final_result)) + geom_bar(position = "fill") + scale_y_continuous(labels = scales::percent) + labs(x="", y="", fill = "Final result") + papaja::theme_apa() + scale_fill_manual(values = col_res)
+p_res <- ggplot(students, aes(code_module, fill = final_result)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "", y = "", fill = "Final result") +
+  scale_fill_manual(values = col_res) +
+  papaja::theme_apa()
 
 p_age <- ggplot(students, aes(x=code_module, fill = fct_rev(age_band))) + geom_bar(position = "fill") + scale_y_continuous(labels = scales::percent) + labs(x="", y="", fill = "Age") + papaja::theme_apa() + scale_fill_brewer(palette = "Paired")
 
-p_edu <- ggplot(students, aes(x=code_module, fill = highest_education)) + geom_bar(position = "fill") + scale_y_continuous(labels = scales::percent) + labs(x="", y="", fill = "Education") + scale_fill_brewer(direction = -1) + papaja::theme_apa() 
+p_edu <- ggplot(students, aes(x = code_module, fill = highest_education)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "", y = "", fill = "Education") +
+  scale_fill_brewer(direction = -1) +
+  papaja::theme_apa()
 
 more_blues = rev(colorRampPalette(brewer.pal(8, "Blues"))(12))[1:10]
 
-students$imd_band %<>% factor(levels = rev(levels(students$imd_band)))
-
-p_imd <- ggplot(students %>% filter(!is.na(imd_band)), aes(x=code_module, fill = imd_band)) + geom_bar(position = "fill") + scale_y_continuous(labels = scales::percent) + labs(x="", y="", fill = "Level of deprivation") + scale_fill_manual(values = more_blues) + papaja::theme_apa()
+p_imd <- ggplot(students %>% filter(!is.na(imd_band)), aes(x=code_module, fill = imd_band)) + geom_bar(position = "fill") + scale_y_continuous(labels = scales::percent) + labs(x="", y="", fill = "Percentile of \ndeprivation") + scale_fill_manual(values = more_blues) + papaja::theme_apa()
 
 
 (p_age | p_edu) / (p_imd | p_res) + plot_annotation(tag_levels = 'A')
 
 ```
 
-## Data analysis
+Within the OULAD dataset, I only considered Social Science modules, given that these are closer to my teaching reality than the STEM modules also included Also, only students who completed the modules were included to focus on learning rather than retention [for analyses focusing on retention, see @hassan2019virtual]. This restricted the sample to `r length(unique(students$id_student))` students (`r fmt_pct(mean(students$gender == "F"))` female) across three modules. In line with the Open University student body, they were diverse in terms of age, educational qualifications and the level of deprivation of their post code ^[This was measured with the index of multiple deprivation that combines seven domains and expressed as percentiles that rank localities from 1 (most deprived) to 100 (least deprived). For details, see @smith2015english.] (see \autoref{fig:exp1}).
 
-I used `r cite_r("r-references.bib")` for all analyses. For transparency, the code to run the analyses and create this manuscript is shared on GitHub.
+## Data analysis and code availability
+
+```{r}
+cite_pkgs <- c("tidyverse", "papaja", "timesaveR", "patchwork")
+```
+
+
+I used `r cite_r()` for all analyses and for the preparation of this manuscript [^2]. The full code is shared on GitHub: [(https://github.com/LukasWallrich/PGCert)](https://github.com/LukasWallrich/PGCert). In general, I analysed relationships separately by module and cohort to see to what extent findings are consistent.
+
+[^2]: `r cite_r("r-references.bib", pkgs = cite_pkgs, w = FALSE, footnote = TRUE)$pkgs %>% str_replace("\\n\\n.*We", "I")`
 
 # Results
 
 ## Description of VLE interactions
 
-\autoref{fig:exp2} illustrates students' average frequency of interactions with different types of VLE pages. Panel A expresses this as the average number of days the student interacted with the resource, while Panel B focuses on the average number of clicks, thereby also including the intensity of engagement. The results highlight that VLE usage in module AAA was substantially higher than that in the other two modules, and that in each module, students engaged most intensely with the homepage, with forums and OU learning content.
+\autoref{fig:exp2} illustrates students' average frequency of interactions with different types of VLE pages. Panel A expresses this as the number of days the student interacted with the resource, while Panel B focuses on the number of clicks, thereby also including the intensity of engagement. The results highlight that VLE usage in module A was substantially higher than that in the other two modules, and that in each module, students engaged most intensely with the homepage, forums and OU learning content.
 
-```{r describe_interaction_types, fig.height=5, fig.width=8, fig.cap="Average frequency of interaction with various types of pages \\label{fig:exp2}"}
+```{r, fig.height=5, fig.width=8, fig.cap="Average frequency of interaction with various types of pages \\label{fig:exp2}"}
 types_used_clicks <- vle_interactions %>%
   filter(id_student %in% students$id_student) %>%
   group_by(code_module) %>%
@@ -171,11 +205,11 @@ days + clicks + plot_layout(guides = "collect") + plot_annotation(tag_levels = '
 
 ```
 
-Students' frequency of engaging with the VLE pages varied drastically. \autoref{fig:exp3} shows the distribution on a logarithmic scale, with equal-sized steps on the y-axis indicating a doubling of the frequency of engagement. The data indicates that across modules, students tended to engage more frequently with resources that focused on passive rather than active learning. [^1]
+Students' frequency of engaging with the VLE pages varied drastically. \autoref{fig:exp3} shows the distribution on a logarithmic scale, with equal-sized steps on the y-axis indicating a doubling of the frequency of engagement (reasons for using such scales will be discussed below). The data indicates that across modules, students tended to engage more frequently with resources that focused on passive rather than active learning. [^1]
 
-[^1]: VLE forums and quizzes were taken to use an active learning mode, while all other pages were considered to focus on passive learning.
+[^1]: VLE forums and quizzes were taken to use an active learning mode, while all other pages were considered to focus on passive learning. The homepage for each module is shown separately, given that is is likely to be a gateway to both types of resources.
 
-```{r describe_interaction_frequencies, fig.height=5, fig.width=8, fig.cap="Distribution of interaction frequencies \\label{fig:exp3}"}
+```{r, fig.height=5, fig.width=8, fig.cap="Distribution of interaction frequencies \\label{fig:exp3}"}
 mode_used_clicks <- vle_interactions %>%
   filter(id_student %in% students$id_student) %>%
   group_by(code_module, id_student, activity_mode) %>%
@@ -192,115 +226,294 @@ mode_used_days <- vle_interactions %>%
 days <- mode_used_days %>% ggplot(aes(x = code_module, y = days, fill = activity_mode)) +
   geom_violin() + theme_apa() + labs(x="", y="", title = "Active days per student", fill = "Learning mode") + scale_y_continuous(trans = "log2")
 
-days + clicks + plot_layout(guides = "collect") + plot_annotation(tag_levels = 'A')
+days + clicks + plot_layout(guides = "collect") + plot_annotation(tag_levels = 'A') + plot_annotation(caption = "NB: The width of each shape indicates the share of students at that level of engagement") & scale_fill_brewer(type="qual")
 
 ```
 
 ## Engagement predicts results
 
-Following from these descriptions, I turn to the key research question, namely whether VLE engagement can predict module results. From here, for parsimony, I only report results based on the number of active days as an indicator of engagement; results of models focused on the number of clicks were generally comparable.
+Following from these descriptions, I turn to the first research question, namely whether VLE engagement can predict module results. From here, for parsimony, I only report results based on the number of active days as an indicator of engagement; results of models focused on the number of clicks were generally comparable. \autoref{fig:exp4} shows that across modules and cohorts, there was a clear positive relationship between VLE engagement and students' average assessment grade. Here I again use logarithmic scales, for two reasons: technically, logarithmic scales can be used when the data is substantially skewed towards small values, as is the case here, in order to reduce the effect of outliers. More importantly, their use makes substantive sense when there is reason to assume a declining *incremental* effect. Here, it appears very likely that the first day of engagement will contribute more to learning than the 101st day. Therefore, I tested how each doubling of the number of active days is linked to the grade. In \autoref{fig:exp4}, lines are shown that indicate how a General Additive Model [@hastie1990generalized] estimates the relationship. This does not assume a linear relationship and allows for any curves to be included. However, if the relationship is linear in the areas with the densest clustering of observations, non-linearity beyond might be a result due to over-fitting, i.e. driven by random variations in the sample. Given that this is the case here, I preferred linear models for the statistical test.
 
-```{r}
-
-total_engagement_mode <- students %>%
-  select(code_module, code_presentation, id_student, final_result) %>%
-  left_join(vle_interactions, .) %>%
-  filter(final_result != "Withdrawn") %>%
-  group_by(code_module, code_presentation, id_student, activity_mode) %>%
-  summarise(sum_click = sum(sum_click), days_active = length(unique(date)))
-
-total_engagement_mode <- students %>%
-  select(code_module, code_presentation, id_student, final_result, gender, highest_education, imd_band, age_band, studied_credits, disability, assessment_result) %>%
-left_join(total_engagement_mode, .) 
-
-total_engagement_mode %<>% mutate(imd_num = as.numeric(str_sub(imd_band, 1, 1))+1)
-
-total_engagement_mode_wider <- total_engagement_mode %>% select(-sum_click) %>% pivot_wider(names_from = activity_mode, values_from = days_active)
-
-# total_engagement_mode_wider_clicks <- total_engagement_mode %>% select(-days_active) %>% pivot_wider(names_from = activity_mode, values_from = sum_click)
-
-
-lm(assessment_result ~ code_module * code_presentation * active * passive * imd_band * highest_education * gender * disability * studied_credits, total_engagement_mode_wider) %>% summary()
-
-
-m_sd <- function(x, na.rm = TRUE, digits = 2) {
-  glue::glue("{timesaveR::round_(mean(x, na.rm = na.rm), digits)} ({timesaveR::round_(sd(x, na.rm = na.rm), digits)})")
-}
-
-
-unique_until <- function(var, until){
-  length(unique(var[1:until]))
-}
-
-unique_until <- Vectorize(unique_until, vectorize.args = "until")
-
-
-interactions_cum <- vle_interactions %>%
+```{r, fig.height=5, fig.width=8, fig.cap="Relationship between VLE activity and assessment results \\label{fig:exp4}", warning=FALSE}
+days_active <- vle_interactions %>%
+  filter(id_student %in% students$id_student) %>%
   group_by(code_module, code_presentation, id_student) %>%
-  arrange(date) %>%
-  mutate(group_row = row_number(), cum_clicks = cumsum(sum_click), cum_days = unique_until(date, group_row)) %>%
-  group_by(code_module, code_presentation, id_student, date) %>%
-  slice_tail(n = 1) %>%
-  select(code_module, code_presentation, id_student, date, cum_clicks, cum_days) %>%
-  ungroup()
+  summarise(days = length(unique(date))) %>% left_join(students) %>%
+  mutate(N = unique(id_student))
 
-interactions_cum_type <- vle_interactions %>%
-  group_by(code_module, code_presentation, id_student, activity_type) %>%
-  arrange(date) %>%
-  mutate(group_row = row_number(), cum_clicks = cumsum(sum_click), cum_days = unique_until(date, group_row)) %>%
-  group_by(code_module, code_presentation, id_student, date, activity_type) %>%
-  slice_tail(n = 1) %>%
-  select(code_module, code_presentation, id_student, date, cum_clicks, cum_days, activity_type) %>%
-  ungroup()
+labels_presentations <- list("2013 winter" = "2013B", "2013 summer" = "2013J", 
+                             "2014 winter" = "2014B", "2014 summer" = "2014J")
 
-interactions_summary <- vle_interactions %>% group_by(code_module, code_presentation, id_student) %>% summarise(days_active = length(unique(date)), clicks = sum(sum_click)) %>% left_join(students) %>% 
-  mutate(final_result = factor(final_result, levels = c("Withdrawn", "Fail", "Pass", "Distinction")))
+days_active %<>% mutate(code_presentation = fct_recode(code_presentation, !!!labels_presentations))
 
-interactions_summary %>% 
-  group_by(code_module, code_presentation, final_result) %>%
-  summarise(Days_mean = m_sd(days_active), Days_median = median(days_active), Clicks_mean = m_sd(clicks), Clicks_median = median(clicks)) %>% gt::gt()
-
-ggplot(interactions_summary, aes(log(clicks), col = final_result)) + geom_density() + facet_grid(code_module ~ code_presentation)
-
-
-interactions_summary  %>%
-  ggplot(aes(days_active, y = final_result)) +
-  geom_boxplot() +
-  facet_grid(code_module ~ code_presentation) 
-
-interactions_summary %>% 
-  ggplot(aes(days_active, y = assessment_result)) +
-  geom_jitter(alpha = .1) +
-  facet_grid(code_module ~ code_presentation) 
+ggplot(days_active, aes(days, assessment_result, col = code_presentation)) +
+  geom_jitter(aes(alpha = 1 / N)) +
+  geom_smooth(se=FALSE) +
+  facet_wrap(.~code_module) + 
+  scale_alpha(range = c(0.1, 0.25), guide = "none") + 
+  scale_x_continuous(trans = "log2") +
+  labs(col = "Cohort", y = "Mean assessment grade", x = "Active days") + scale_color_brewer(palette="Set1") + theme_apa()
 
 ```
 
-## Association to demographics
+```{r predict_mods}
+mods <- days_active %>% group_by(code_module, code_presentation) %>% do(mod = lm(assessment_result ~ log(days, 2), .)) 
 
-In order to understand whether VLE usage is related to demographic factors that predict student outcomes, linear regression models were run to see whether student's age category, gender, disability status, or level of previous education predicted their frequency of VLE usage.
+quartiles <- days_active %>% group_by(code_module, code_presentation) %>%
+  summarise(lower = quantile(days, .125), upper = quantile(days, .875))
+
+coefs <- mods %>%
+  mutate(tidy_mod = list(broom::tidy(mod))) %>%
+  select(-mod) %>%
+  unnest(tidy_mod) %>%
+  filter(str_detect(term, "log")) %>%
+  select(code_module, code_presentation, estimate, p.value)
+
+R2s <- mods %>%
+  mutate(glance_mod = list(broom::glance(mod))) %>%
+  select(-mod) %>%
+  unnest(glance_mod) %>%
+  select(code_module, code_presentation, r.squared)
+
+gaps <- mods %>% left_join(quartiles) %>%
+  mutate(diff = diff(predict(mod, data.frame(days = c(lower, upper)))))
+
+```
+
+Linear regression models predicting the average grade from the logarithm of base 2 of the number of active days show that VLE activity consistently significantly predicts average assessment grades, all *p*s < .0001. Typically, the number of days with VLE activity explained around 20% of the variance in assessment grades (`r fmt_pct(min(R2s$r.squared[-which.min(R2s$r.squared)]))` < $R^2$ < `r fmt_pct(max(R2s$r.squared))`), which can be considered a large effect in educational research [@sanders2015powered]. In terms of assessment marks, the gap between those in the upper quartile of VLE engagement and those in the lower quartile was predicted to be more than one grade band (`r round_(min(gaps$diff[-which.min(gaps$diff)]), 1)` to `r round_(max(gaps$diff), 1)` marks). The only exception to this was the 2014 summer cohort in the B module, with an $R^2$ of `r fmt_pct(min(R2s$r.squared))` (grade difference of `r round_(min(gaps$diff), 1)` marks), where a large number of straight 0 and 100 grades increased the variance of assessment grades. This is more likely to reflect an issue with the data or grading in that module than a divergence of interest to the research questions asked here.
+
+### Differences between active and passive engagement
+
+In order to gain some insights into how to best design VLE activities, I tested whether the associations differed depending on whether the engagement took place with active (e.g., forums) or passive (e.g., resource) pages. Visual exploration (see \autoref{fig:exp5}) suggested that both types were positively correlated with assessment grades. Based on the general additive model line, the relationships between the second logarithm of the number of active days and assessment grades can again be plausibly assumed to be linear. Therefore, I estimated linear regression models predicting assessment grades from both active and passive engagement.
+
+```{r, fig.height=5, fig.width=8, fig.cap="Relationship between VLE activity and assessment results by mode \\label{fig:exp5}", warning=FALSE}
+
+days_active_mode <- vle_interactions %>%
+  filter(id_student %in% students$id_student) %>%
+  group_by(code_module, code_presentation, id_student, activity_mode) %>%
+  summarise(days = length(unique(date))) %>% left_join(students) %>%
+  mutate(N = unique(id_student))
+
+labels_presentations <- list("2013 winter" = "2013B", "2013 summer" = "2013J", 
+                             "2014 winter" = "2014B", "2014 summer" = "2014J")
+
+days_active_mode %<>% mutate(code_presentation = fct_recode(code_presentation, !!!labels_presentations))
+
+ggplot(days_active_mode %>% filter(activity_mode != "homepage"), aes(days, assessment_result, col = code_presentation)) +
+  geom_jitter(aes(alpha = 1 / N)) +
+  geom_smooth(se=FALSE) +
+  facet_grid(activity_mode~code_module) + 
+  scale_alpha(range = c(0.1, 0.25), guide = "none") + 
+  scale_x_continuous(trans = "log2") +
+  labs(col = "Cohort", y = "Mean assessment grade", x = "Active days") +
+  scale_color_brewer(palette="Set1") + theme_apa()
+
+```
 
 ```{r}
+mods <- days_active_mode %>%
+  filter(activity_mode != "homepage") %>%
+  pivot_wider(names_from = activity_mode, values_from = days) %>%
+  group_by(code_module, code_presentation) %>%
+  do(mod = lm(assessment_result ~ log(active, 2) + log(passive, 2), .))
 
-
-R2_diff <- function(mod1, mod2) {
- timesaveR::fmt_pct(summary(mod2)$r.squared - summary(mod1)$r.squared)
-}
-
-mod_days1 <- lm(cbind(active, passive) ~ code_module * code_presentation, total_engagement_mode_wider_days)
-
-mod_days2 <- lm(cbind(active, passive) ~ code_module * code_presentation + imd_num + highest_education + gender + disability, total_engagement_mode_wider_days)
-
-
-
-lm(cbind(active, passive) ~ code_module * code_presentation, total_engagement_mode_wider_clicks) %>% summary()
-
-lm(cbind(active, passive) ~ code_module * code_presentation + imd_num + highest_education + gender + disability, total_engagement_mode_wider_clicks) %>% summary()
-
+coefs <- mods %>%
+  mutate(diff_p = car::linearHypothesis(mod,"log(active, 2)=log(passive, 2)")$`Pr(>F)`[2]) %>% 
+  mutate(tidy_mod = list(broom::tidy(mod, conf.int = TRUE))) %>%
+  select(-mod) %>%
+  unnest(tidy_mod) %>%
+  filter(str_detect(term, "log")) %>%
+  select(code_module, code_presentation, term, estimate, p.value, diff_p) 
+  
+coefs <- coefs %>%
+  select(-p.value) %>%
+  pivot_wider(names_from = term, values_from = estimate) %>%
+  mutate(diff = `log(active, 2)` - `log(passive, 2)`, diff_p = p.adjust(diff_p, method = "holm"))
 
 
 ```
+
+These models revealed different patterns between the modules (see \autoref{tab:coef}). In module A, passive engagement had a stronger relationship with grades than active engagement did, while active engagement mattered more in module B (except for the summer 2014 cohort, which has already been identified as an outlier). In module G, the differences were not statistically significant, but passive engagement again tended to be the stronger predictor.
+
+(ref:tbl-note) *** *p* < .001, ** *p* < .01, * *p* < .05 (*p*-values are adjusted for multiple comparisons using the Holm-Bonferroni method.)
+
+```{r coef}
+
+coefs %<>% 
+  transmute(Module = code_module, Cohort = code_presentation,
+            "Active engagement" = `log(active, 2)`, "Passive engagement" = `log(passive, 2)`, 
+            Difference = paste(round_(.data$diff), sigstars(diff_p)))
+
+apa_table(coefs, caption = "Association of active and passive engagement with assessment grades",
+          col_spanners = list("Regression coefficients" = c(3, 4)), note = "(ref:tbl-note)", 
+          midrules = c(2, 6), font_size = "footnotesize")
+
+```
+
+## Association between VLE usage and demographics
+
+```{r dem-vle-assoc}
+days_active %<>%
+  mutate(imd_num = as.numeric(str_sub(fct_recode(imd_band, "0-10%" = "1-10%"), 1, 1))+1)
+
+mods <- days_active %>%
+  group_by(code_module, code_presentation) %>%
+  do(mod = lm(days ~ imd_num + highest_education + gender + disability + age_band, .))
+
+R2s <- mods %>%
+  mutate(glance_mod = list(broom::glance(mod))) %>%
+  select(-mod) %>%
+  unnest(glance_mod) %>%
+  transmute(code_module, code_presentation, r.squared, p.value = round(p.value, 5))
+
+
+mods %<>% mutate(aov = list(tidy(anova(mod)) %>% select(term, p.value)))
+
+dem_tab <- mods %>%
+  select(-mod) %>%
+  unnest(aov) %>%
+  pivot_wider(names_from = term, values_from = p.value) %>%
+  left_join(R2s %>% select(-p.value)) %>%
+  select(-Residuals)
+
+dem_tab_print <- dem_tab
+
+dem_tab_print[3:7] <- NA_character_
+dem_tab_print[3:7][dem_tab[3:7]>.05] <- ""
+dem_tab_print[3:7][dem_tab[3:7]<=.05] <- "$\\checkmark$"
+
+
+rename_tribble <- tibble::tribble(
+  ~old,                 ~new,                 
+   "code_module",        "Module",       
+   "code_presentation",  "Cohort", 
+   "imd_num",            "Local Deprivation",           
+   "highest_education",  "Highest Education", 
+   "gender",             "Gender",            
+   "disability",         "Disability",        
+   "age_band",           "Age Band",          
+   "r.squared",          "$R^2$"
+)
+
+names(dem_tab_print) <- rename_tribble$new
+
+
+days_active %<>% mutate(log2_days = log2(days))
+```
+
+
+```{r mediation-models, fig.show='hide'}
+tidy.mediate <- function(x, conf.level = .95) {
+  if(!is.null(x$var.names[["mod"]]) | !is.null(x$var.names[["z"]])) stop("This tidier does not suppport models that include moderators or covariates.")
+  if(length(x$var.names[["med"]]) > 1) stop("This tidier presently only supports models that include a single mediator.")
+  tibble::tribble(
+    ~term, ~estimate, ~std.error, ~p.value, ~conf.low, ~conf.high,
+    "a", x$a.reg$beta[2], x$a.reg$se[2], x$a.reg$prob[2], NA, NA,
+    "b", x$b.reg$beta[2], x$b.reg$se[2], x$b.reg$prob[2], NA, NA,
+    "indirect_bootstrap", x$boot$mean[1], x$boot$sd[1], NA, quantile(x$boot.values, (1-conf.level)/2), quantile(x$boot.values, 1-(1-conf.level)/2),
+    "total", x$total.reg$beta[2], x$total.reg$se[2], x$total.reg$prob[2], NA, NA,
+    "cprime", x$cprime.reg$beta[2], x$cprime.reg$se[2], x$cprime.reg$prob[2], NA, NA
+    )
+}
+
+# do() is superseded - this is the new dplyr approach
+mediation_mods <- days_active %>%
+  ungroup() %>%
+  nest_by(code_module, code_presentation) %>%
+  mutate(mod = list(tidy.mediate(psych::mediate(assessment_result ~ imd_num + (days), data = data))),
+         estimates = list(mod %>%
+                            dplyr::select(term, estimate)), 
+         sig = mod %>% filter(term == "indirect_bootstrap") %>% 
+           mutate(sig = sign(conf.low) == sign(conf.high)) %>% pull()) %>%
+  dplyr::select(-data, -mod) %>%
+  unnest(estimates) %>%
+  pivot_wider(names_from = term, values_from = estimate) %>%
+  mutate(share_mediated = indirect_bootstrap / total)
+
+
+```
+
+
+```{r dem-vle-associations}
+apa_table(dem_tab_print, caption = "Associations between demographic characteristics and VLE engagement",
+          col_spanners = list("Predictors" = c(3, 7)), note = "Checkmarks indicate that this characteristic predicted VLE engagement significantly.", 
+          midrules = c(2, 6),
+          font_size = "footnotesize", escape = FALSE)
+
+```
+
+Given that VLE usage varied widely between students and had a strong association with assessment outcomes, I considered whether VLE usage is related to demographic factors that predict student outcomes. To that effect, I ran linear regression models to see whether student's age category, gender, disability status, or level of previous education predicted their frequency of VLE usage. Overall, only students' age and the level of deprivation in their local postcode consistently predicted VLE engagement, and the demographic predictors typically accounted for less than 10% of the variance in VLE usage (see \autoref{tab:dem-vle-associations}).
+
+In spite of these relatively small associations, this suggests that differences in VLE engagement might help explain how demographic inequalities come to shape academic outcomes. As \autoref{fig:exp6} shows, a greater level of deprivation was typically associated with reduced VLE engagement. In addition, deprivation was generally associated with lower assessment grades. Mediation models allow one to test whether potential causal pathways are congruent with the observed data. Therefore, I tested whether differences in VLE usage can explain the association between local-level deprivation and assessment outcomes. This indirect path was significant in `r sum(mediation_mods$sig)` of the `r nrow(mediation_mods)` cohort-module-combinations observed. On these occasions, on average, VLE engagement explained `r mediation_mods %>% filter(sig) %$% mean(share_mediated) %>% fmt_pct()` of the relationship between deprivation and assessment outcomes. With regard to age, mature students tended to show higher engagement and higher assessment grades (see \autoref{fig:exp7} in the Appendix). However, this appears likely to reflect broader differences between these groups of students, so that it is not explored further here.
+
+```{r, fig.height=5, fig.width=8, fig.cap="Relationship between VLE activity and assessment results by mode \\label{fig:exp6}", warning=FALSE}
+days_active %<>% group_by(code_module, code_presentation) %>% 
+  mutate(N = length(unique(id_student)))
+
+bands_labels <- c(levels(days_active$imd_band)[1], "", "", "", levels(days_active$imd_band)[5], "", "", "", "", levels(days_active$imd_band)[10]) %>% str_replace("-", "-\n")
+
+days_active %>%
+  filter(!is.na(imd_num)) %>%
+  ggplot(aes(imd_num, days, col = code_presentation)) +
+  geom_jitter(aes(alpha = 1 / N)) +
+  geom_smooth(se = FALSE) +
+  facet_wrap(. ~ code_module) +
+  scale_y_continuous(trans = "log2") + 
+  scale_alpha(range = c(0.1, 0.25), guide = "none") +
+  scale_x_reverse(breaks = 1:10, labels = bands_labels) +
+  scale_color_brewer(palette="Set1") + theme_apa() +
+  labs(x = "Percentile of multiple deprivation (1 = most deprived)", y = "Active days", col = "Cohort")
+
+age_engagement <- days_active %>%
+  filter(!is.na(age_band)) %>%
+  mutate(age_band = fct_recode(age_band, "55+" = "55<=")) %>%
+  ggplot(aes(age_band, days, col = code_presentation)) +
+  geom_jitter(aes(alpha = 1 / N)) +
+  geom_boxplot(fill = NA) +
+  facet_wrap(. ~ code_module) +
+  scale_y_continuous(trans = "log2") + 
+  scale_alpha(range = c(0.05, 0.15), guide = "none") +
+  scale_color_brewer(palette="Set1") + theme_apa() + 
+  labs(x = "Age group", y = "Active days", col = "Cohort", title = "... engagement")
+
+age_results <- days_active %>%
+  filter(!is.na(age_band)) %>%
+  mutate(age_band = fct_recode(age_band, "55+" = "55<=")) %>%
+  ggplot(aes(age_band, assessment_result, col = code_presentation)) +
+  geom_jitter(aes(alpha = 1 / N)) +
+  geom_boxplot(fill = NA) +
+  facet_wrap(. ~ code_module) +
+  scale_alpha(range = c(0.05, 0.15), guide = "none") +
+  scale_color_brewer(palette="Set1") + theme_apa() + 
+  labs(x = "Age group", y = "Mean assessment grade", col = "Cohort", title = "... results")
+
+```
+
 
 # Discussion
+
+The findings presented here highlight that VLE engagement varies widely between students and predicts their module outcomes. Contrary to my expectations based on pedagogical theories, there was no consistent evidence that active engagement was more closely linked to student achievement than passive engagement was. Importantly, the fact that students from disadvantaged backgrounds achieve lower grades, appears likely to be explained in part by lower VLE engagement. These findings have clear implications for my teaching practice. Firstly, they highlight the importance of promoting and monitoring VLE engagement, which can be facilitated by the effective use of learning analytics data like that relied on here. Secondly, they highlight that active learning on VLE platforms needs to be designed in a way that directly furthers learning outcomes and is reflected in subsequent assessments. Thirdly, the achievement of equity in VLE engagement is critical in the path towards removing demographic achievement gaps. In the future, I will experiment with various strategies in the pursuit of that goal, such as the setting and tracking of clear expectations regarding engagement, as well as the provision of VLE resources that seem relevant to all students. 
+
+## Limitations and further research
+
+While OULAD is a large dataset that provides insights into actual student behaviours across a range of modules, the available data is limited in several key ways. For one, there is no information regarding the content of the VLE resources, which would be beneficial when it comes to understanding the differential effectiveness of active engagement. Furthermore, there is no measure of 'value-add', but only of overall assessment outcomes. Research into the effectiveness of teaching strategies should be concerned with students' learning over the course of a specific experience, so that knowing more about students' baseline would have allowed for more robust inferences.
+
+Regarding further research with this dataset, I considered only the Social Science modules, as they are of greater relevance to my practice. To understand VLE usage more broadly, the results could be contrasted against the STEM modules also included in that dataset. Similarly, I only considered total VLE engagement over the course of the modules. Further research could consider engagement over time, and thus explore whether there are particularly important turning points. One specific hypothesis worth testing, due to its practical implications, might be that VLE engagement in early days sets students onto a trajectory that becomes difficult to change.
+
+# Conclusion
+
+Online learning environments provide a wealth of data that promises insights into student learning. In this paper, I used a large publicly available data set to explore some key questions regarding the use of virtual learning environments. My findings confirm the value of VLE engagement, highlight the need to carefully design activities that promote active engagement and emphasize the need to consider the risk that VLE usage might exacerbate inequalities. Thus, they will inform my teaching practice. However, the limitations also highlight that research using 'big data' must be complemented with deep-dives that consider students' actual engagement with specific online resources.
+
+\newpage
+
+
+# Appendix
+
+```{r, fig.height=5, fig.width=8, fig.cap="Relationship between age, engagement and outcomes \\label{fig:exp7}", warning=FALSE}
+age_engagement + age_results + 
+  plot_annotation(title = "Association between age and ...") + plot_layout(guides = "collect")
+```
+
 
 \newpage
 
